@@ -1,44 +1,48 @@
 # Symphony Runner
 
-Small shell wrapper for running [Symphony](https://github.com/gitwithflash/symphony) workflows against a Linear project while using the OpenAI Codex app server as the coding agent.
+Small shell wrapper for creating project-specific Symphony workflows from your existing Symphony installation and launching them against Linear-backed projects.
 
-## What This Does
+## What It Does
 
-`symphony.sh` helps you:
+`symphony.sh`:
 
-- register a project name, Linear project slug, and Git repo URL
-- generate a Symphony workflow file in `~/.symphony/workflows`
-- launch Symphony with `codex app-server` configured as the agent command
+- stores project mappings in `~/.symphony/projects.conf`
+- copies your base Symphony workflow from `$SYMPHONY_BIN/WORKFLOW.md`
+- patches the copied workflow with a project slug, repo URL, and workspace path
+- starts Symphony with the generated workflow
 
-The generated workflow uses:
-
-- `tracker.kind: linear`
-- `codex.command: codex app-server`
-- `hooks.after_create: git clone --depth 1 <repo> .`
+This wrapper does not define the full workflow itself. It assumes your Symphony checkout already contains a working base `WORKFLOW.md`.
 
 ## Prerequisites
 
-Make sure these are installed and working:
+You need:
 
-- Symphony
-- `codex` CLI with `codex app-server` available
+- Symphony installed locally
 - `mise`
 - `git`
 - a valid `LINEAR_API_KEY`
 
-By default this script expects Symphony here:
+Optional:
+
+- `SYMPHONY_BIN` if your Symphony checkout is not at the default path
+
+Default Symphony path:
 
 ```bash
 $HOME/symphony/elixir
 ```
 
-If your Symphony checkout is elsewhere, set:
+Override it if needed:
 
 ```bash
 export SYMPHONY_BIN=/path/to/symphony/elixir
 ```
 
-## Setup
+Export your Linear API key before running the script:
+
+```bash
+export LINEAR_API_KEY=your_linear_api_key
+```
 
 Make the script executable:
 
@@ -46,21 +50,27 @@ Make the script executable:
 chmod +x symphony.sh
 ```
 
-Export your Linear API key:
+## How It Works
+
+When you run `add`, the script:
+
+1. checks that `$SYMPHONY_BIN/WORKFLOW.md` exists
+2. copies it to `~/.symphony/workflows/WORKFLOW_<name>.md`
+3. updates:
+   - `tracker.project_slug`
+   - the `git clone` line
+   - the workspace root under `~/code/symphony-workspaces/<name>`
+4. stores the project in `~/.symphony/projects.conf`
+
+When you run `start`, the script launches:
 
 ```bash
-export LINEAR_API_KEY=your_linear_api_key
+mise exec -- ./bin/symphony <workflow-file> --i-understand-that-this-will-be-running-without-the-usual-guardrails
 ```
 
-Optional: add a convenient alias:
+## Usage
 
-```bash
-alias symphony="$PWD/symphony.sh"
-```
-
-## How To Use With Symphony + OpenAI Codex
-
-### 1. Add a project
+Add a project:
 
 ```bash
 ./symphony.sh add <name> <linear-project-slug> <git-repo-url>
@@ -72,18 +82,13 @@ Example:
 ./symphony.sh add rizz-ai symphony-6d2ee11f7e5e git@github.com:philipdaquin/rizz-ai.git
 ```
 
-This creates:
-
-- a workflow file at `~/.symphony/workflows/WORKFLOW_<name>.md`
-- a project entry in `~/.symphony/projects.conf`
-
-### 2. List configured projects
+List configured projects:
 
 ```bash
 ./symphony.sh list
 ```
 
-### 3. Start Symphony for a project
+Start a project:
 
 ```bash
 ./symphony.sh start <name>
@@ -95,49 +100,16 @@ Example:
 ./symphony.sh start rizz-ai
 ```
 
-When started, the script:
-
-1. looks up the project in `~/.symphony/projects.conf`
-2. loads the generated workflow
-3. changes into your Symphony checkout
-4. runs:
-
-```bash
-mise exec -- ./bin/symphony <workflow-file> --i-understand-that-this-will-be-running-without-the-usual-guardrails
-```
-
-## Generated Workflow Example
-
-For a project named `rizz-ai`, the script generates a workflow like this:
-
-```yaml
----
-tracker:
-  kind: linear
-  project_slug: "symphony-6d2ee11f7e5e"
-workspace:
-  root: ~/code/symphony-workspaces/rizz-ai
-hooks:
-  after_create: |
-    git clone --depth 1 git@github.com:philipdaquin/rizz-ai.git .
-agent:
-  max_concurrent_agents: 5
-  max_turns: 20
-codex:
-  command: codex app-server
----
-```
-
-This is the key OpenAI integration point: Symphony will use `codex app-server` for agent execution.
-
 ## Files Used
 
-- `~/.symphony/projects.conf`: flat config storing project mappings
-- `~/.symphony/workflows/`: generated Symphony workflow files
-- `symphony.sh`: the wrapper script in this repo
+- `symphony.sh`: wrapper script
+- `~/.symphony/projects.conf`: stored project mappings
+- `~/.symphony/workflows/WORKFLOW_<name>.md`: generated per-project workflows
+- `$SYMPHONY_BIN/WORKFLOW.md`: base workflow template copied and patched by this script
 
-## Notes
+## Important Notes
 
-- `LINEAR_API_KEY` is required even for basic script usage.
-- If a project name already exists, the script replaces that entry in `projects.conf` and regenerates the workflow.
-- The script currently assumes a Linear-backed Symphony workflow.
+- `LINEAR_API_KEY` is required or the script exits immediately.
+- The script depends on the structure of your existing Symphony `WORKFLOW.md`.
+- Any agent configuration, including OpenAI Codex integration, comes from the base workflow in your Symphony checkout.
+- The in-place `sed -i ''` commands are written for macOS/BSD `sed`.
