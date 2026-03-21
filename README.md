@@ -1,6 +1,9 @@
-# Symphony Runner
+# Symphony Runner with claude/codex/minimax integration
 
-Small shell wrapper for creating project-specific Symphony workflows from your existing Symphony installation and launching them against Linear-backed projects.
+Shell wrapper for creating project-specific Symphony workflows and launching them against Linear-backed projects with support for multiple AI adapters.
+
+Refer to my forked version of symphony for Claude/Codex/MiniMax integration:
+https://github.com/philipdaquin/symphony
 
 ## What It Does
 
@@ -8,14 +11,11 @@ Small shell wrapper for creating project-specific Symphony workflows from your e
 
 - stores project mappings in `~/.symphony/projects.conf`
 - copies your base Symphony workflow from `$SYMPHONY_BIN/WORKFLOW.md`
-- patches the copied workflow with a project slug, repo URL, and workspace path
+- patches the copied workflow with project slug, repo URL, workspace path, and agent config
+- auto-builds the Symphony escript when source files change
 - starts Symphony with the generated workflow
 
-This wrapper does not define the full workflow itself. It assumes your Symphony checkout already contains a working base `WORKFLOW.md`.
-
 ## Prerequisites
-
-You need:
 
 - Symphony installed locally
 - `mise`
@@ -24,13 +24,10 @@ You need:
 
 Optional:
 
+- `MINIMAX_API_KEY` for MiniMax routing
 - `SYMPHONY_BIN` if your Symphony checkout is not at the default path
 
-Default Symphony path:
-
-```bash
-$HOME/symphony/elixir
-```
+Default Symphony path: `$HOME/symphony/elixir`
 
 Override it if needed:
 
@@ -38,10 +35,13 @@ Override it if needed:
 export SYMPHONY_BIN=/path/to/symphony/elixir
 ```
 
-Export your Linear API key before running the script:
+## Setup
+
+Export your API keys before running the script:
 
 ```bash
 export LINEAR_API_KEY=your_linear_api_key
+export MINIMAX_API_KEY=your_minimax_api_key  # optional, for MiniMax routing
 ```
 
 Make the script executable:
@@ -50,6 +50,74 @@ Make the script executable:
 chmod +x symphony.sh
 ```
 
+## Adapters
+
+The script supports three adapter modes:
+
+| Flag | Adapter | Description |
+|------|---------|-------------|
+| `--codex` | Codex | Uses OpenAI Codex agent (default) |
+| `--claude` | Claude | Uses Anthropic Claude adapter |
+| `--minimax` | Claude + MiniMax | Routes Claude through MiniMax M2.7 |
+
+When using `--minimax`, the script exports these env vars:
+
+```bash
+ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic"
+ANTHROPIC_AUTH_TOKEN="$MINIMAX_API_KEY"
+API_TIMEOUT_MS="3000000"
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+ANTHROPIC_MODEL="MiniMax-M2.7"
+ANTHROPIC_DEFAULT_SONNET_MODEL="MiniMax-M2.7"
+ANTHROPIC_DEFAULT_OPUS_MODEL="MiniMax-M2.7"
+ANTHROPIC_DEFAULT_HAIKU_MODEL="MiniMax-M2.7"
+```
+
+## Usage
+
+### Add a project
+
+```bash
+./symphony.sh add <name> <linear-project-slug> <git-repo-url> [--codex|--claude|--minimax]
+```
+
+Examples:
+
+```bash
+./symphony.sh add rizz-ai symphony-abc git@github.com:org/repo.git
+./symphony.sh add rizz-ai symphony-abc git@github.com:org/repo.git --claude
+./symphony.sh add rizz-ai symphony-abc git@github.com:org/repo.git --minimax
+```
+
+The adapter preference is saved in `projects.conf` and reused on `start` unless overridden.
+
+### List configured projects
+
+```bash
+./symphony.sh list
+```
+
+### Start a project
+
+```bash
+./symphony.sh start <name> [--codex|--claude|--minimax]
+```
+
+Examples:
+
+```bash
+./symphony.sh start rizz-ai
+./symphony.sh start rizz-ai --minimax
+```
+
+Starting a project:
+
+1. Loads adapter preference from `projects.conf` (if no flag passed)
+2. Patches the workflow file with the agent config (`adapter`, `max_concurrent_agents: 10`, `max_turns: 20`)
+3. Exports MiniMax env vars if `--minimax` was used
+4. Builds the Symphony escript if needed (rebuilds if source files are newer)
+5. Launches Symphony with the workflow
+
 ## How It Works
 
 When you run `add`, the script:
@@ -57,59 +125,30 @@ When you run `add`, the script:
 1. checks that `$SYMPHONY_BIN/WORKFLOW.md` exists
 2. copies it to `~/.symphony/workflows/WORKFLOW_<name>.md`
 3. updates:
-   - `tracker.project_slug`
+   - `project_slug`
    - the `git clone` line
    - the workspace root under `~/code/symphony-workspaces/<name>`
-4. stores the project in `~/.symphony/projects.conf`
+4. patches the agent block with adapter and concurrency settings
+5. stores the project in `~/.symphony/projects.conf`
 
-When you run `start`, the script launches:
+When you run `start`, the script:
 
-```bash
-mise exec -- ./bin/symphony <workflow-file> --i-understand-that-this-will-be-running-without-the-usual-guardrails
-```
-
-## Usage
-
-Add a project:
-
-```bash
-./symphony.sh add <name> <linear-project-slug> <git-repo-url>
-```
-
-Example:
-
-```bash
-./symphony.sh add rizz-ai symphony-6d2ee11f7e5e git@github.com:philipdaquin/rizz-ai.git
-```
-
-List configured projects:
-
-```bash
-./symphony.sh list
-```
-
-Start a project:
-
-```bash
-./symphony.sh start <name>
-```
-
-Example:
-
-```bash
-./symphony.sh start rizz-ai
-```
+1. loads saved project config
+2. patches the workflow with current adapter settings
+3. exports MiniMax env vars if needed
+4. checks if the escript needs rebuilding (rebuilds if sources are newer)
+5. launches Symphony with `--logs-root` set to `~/.symphony`
 
 ## Files Used
 
 - `symphony.sh`: wrapper script
-- `~/.symphony/projects.conf`: stored project mappings
+- `~/.symphony/projects.conf`: stored project mappings (format: `name|slug|repo|adapter|use_minimax`)
 - `~/.symphony/workflows/WORKFLOW_<name>.md`: generated per-project workflows
-- `$SYMPHONY_BIN/WORKFLOW.md`: base workflow template copied and patched by this script
+- `$SYMPHONY_BIN/WORKFLOW.md`: base workflow template
+- `$SYMPHONY_BIN/bin/symphony`: built escript (auto-built on demand)
 
 ## Important Notes
 
 - `LINEAR_API_KEY` is required or the script exits immediately.
-- The script depends on the structure of your existing Symphony `WORKFLOW.md`.
-- Any agent configuration, including OpenAI Codex integration, comes from the base workflow in your Symphony checkout.
+- `MINIMAX_API_KEY` is required when using `--minimax`.
 - The in-place `sed -i ''` commands are written for macOS/BSD `sed`.
