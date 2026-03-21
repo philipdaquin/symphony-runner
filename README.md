@@ -5,6 +5,13 @@ Shell wrapper for creating project-specific Symphony workflows and launching the
 Refer to my forked version of symphony for Claude/Codex/MiniMax integration:
 https://github.com/philipdaquin/symphony
 
+Choose between claude/codex integration
+`git clone https://github.com/philipdaquin/symphony.git`
+
+or the original codex only integration
+`git clone https://github.com/openai/symphony.git`
+
+
 ## What It Does
 
 `symphony.sh`:
