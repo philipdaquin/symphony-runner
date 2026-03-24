@@ -1,6 +1,8 @@
-# Symphony Runner with claude/codex/minimax integration
+# Symphony Runner v1.2.0
 
-Shell wrapper for creating project-specific Symphony workflows and launching them against Linear-backed projects with support for multiple AI adapters.
+Shell wrapper for creating project-specific Symphony workflows and launching them against Linear-backed projects with support for multiple AI adapters. Supports claude/codex/minimax integration.
+
+**Latest version includes auto-update!** Run `symphony update` to update.
 
 Refer to my forked version of symphony for Claude/Codex/MiniMax integration:
 https://github.com/philipdaquin/symphony
@@ -129,7 +131,9 @@ Starting a project:
 
 ```bash
 ./symphony.sh install   # Install symphony to ~/bin/symphony (or ~/.local/bin/symphony)
-./symphony.sh update    # Update an existing installation
+./symphony.sh update    # Update to latest version from GitHub
+./symphony.sh update --check   # Check if update available without installing
+./symphony.sh version   # Show current version
 ```
 
 Examples:
@@ -137,9 +141,10 @@ Examples:
 ```bash
 ./symphony.sh install   # First-time installation
 ./symphony.sh update    # Update to the latest version
+./symphony.sh update --check   # Check for updates
 ```
 
-The `update` command detects where Symphony is already installed (`~/bin/symphony`, `~/.local/bin/symphony`, or anywhere in PATH) and replaces it with the current script.
+The `update` command fetches from GitHub main branch and auto-updates if a newer version is available.
 
 ## How It Works
 
