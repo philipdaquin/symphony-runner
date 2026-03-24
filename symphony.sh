@@ -1,5 +1,5 @@
 #!/bin/bash
-
+echo "Running Symphony CLI helper script v1.1.0..."
 set -e
 
 SYMPHONY_DIR="$HOME/.symphony"
@@ -223,12 +223,82 @@ cmd_list() {
 }
 
 # ---------------------------------------------------------------------------
+# update
+# ---------------------------------------------------------------------------
+cmd_update() {
+  local installed_path=""
+
+  if [ -f "$HOME/bin/symphony" ] && [ -x "$HOME/bin/symphony" ]; then
+    installed_path="$HOME/bin/symphony"
+  elif [ -f "$HOME/.local/bin/symphony" ] && [ -x "$HOME/.local/bin/symphony" ]; then
+    installed_path="$HOME/.local/bin/symphony"
+  elif command -v symphony >/dev/null 2>&1; then
+    installed_path=$(command -v symphony)
+  fi
+
+  if [ -z "$installed_path" ]; then
+    echo "Symphony is not installed in your bin."
+    echo "Run 'symphony install' to install it, or manually copy symphony.sh to your bin."
+    exit 1
+  fi
+
+  local current_script
+  current_script=$(readlink -f "$0" 2>/dev/null || echo "$0")
+  current_script=$(realpath "$current_script" 2>/dev/null || echo "$current_script")
+
+  local installed_real
+  installed_real=$(readlink -f "$installed_path" 2>/dev/null || echo "$installed_path")
+  installed_real=$(realpath "$installed_real" 2>/dev/null || echo "$installed_real")
+
+  if [ "$current_script" = "$installed_real" ]; then
+    echo "Symphony is already up to date (installed at $installed_path)"
+    return 0
+  fi
+
+  echo "Updating Symphony from $current_script to $installed_path..."
+  cp "$current_script" "$installed_path"
+  chmod +x "$installed_path"
+  echo "Symphony updated successfully."
+}
+
+# ---------------------------------------------------------------------------
+# install
+# ---------------------------------------------------------------------------
+cmd_install() {
+  local install_dir=""
+  local target_path=""
+
+  if [ -d "$HOME/bin" ] && [ -w "$HOME/bin" ]; then
+    install_dir="$HOME/bin"
+  elif [ -d "$HOME/.local/bin" ] && [ -w "$HOME/.local/bin" ]; then
+    install_dir="$HOME/.local/bin"
+  else
+    install_dir="$HOME/bin"
+    mkdir -p "$install_dir"
+  fi
+
+  target_path="$install_dir/symphony"
+
+  local current_script
+  current_script=$(readlink -f "$0" 2>/dev/null || echo "$0")
+  current_script=$(realpath "$current_script" 2>/dev/null || echo "$current_script")
+
+  echo "Installing Symphony to $target_path..."
+  cp "$current_script" "$target_path"
+  chmod +x "$target_path"
+  echo "Symphony installed successfully."
+  echo "Add $install_dir to your PATH if needed."
+}
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 case "${1:-}" in
-  add)   cmd_add "${@:2}" ;;
-  start) cmd_start "${@:2}" ;;
-  list)  cmd_list ;;
+  add)    cmd_add "${@:2}" ;;
+  start)  cmd_start "${@:2}" ;;
+  list)   cmd_list ;;
+  update) cmd_update ;;
+  install) cmd_install ;;
   *)
     echo "Symphony CLI"
     echo ""
@@ -236,6 +306,8 @@ case "${1:-}" in
     echo "  symphony add <n> <project-slug> <git-repo-url> [--codex|--claude|--minimax]"
     echo "  symphony start <n> [--codex|--claude|--minimax]"
     echo "  symphony list"
+    echo "  symphony update    Update the installed symphony script"
+    echo "  symphony install   Install symphony to your bin"
     echo ""
     echo "  --codex    Use Codex adapter (default)"
     echo "  --claude   Use Claude adapter"
@@ -247,5 +319,6 @@ case "${1:-}" in
     echo "  symphony add rizz-ai slug-abc git@github.com:org/rizz-ai.git --minimax"
     echo "  symphony start rizz-ai"
     echo "  symphony start rizz-ai --minimax"
+    echo "  symphony update"
     ;;
 esac

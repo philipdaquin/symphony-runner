@@ -125,6 +125,22 @@ Starting a project:
 4. Builds the Symphony escript if needed (rebuilds if source files are newer)
 5. Launches Symphony with the workflow
 
+### Install or Update
+
+```bash
+./symphony.sh install   # Install symphony to ~/bin/symphony (or ~/.local/bin/symphony)
+./symphony.sh update    # Update an existing installation
+```
+
+Examples:
+
+```bash
+./symphony.sh install   # First-time installation
+./symphony.sh update    # Update to the latest version
+```
+
+The `update` command detects where Symphony is already installed (`~/bin/symphony`, `~/.local/bin/symphony`, or anywhere in PATH) and replaces it with the current script.
+
 ## How It Works
 
 When you run `add`, the script:
