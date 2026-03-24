@@ -1,6 +1,8 @@
 #!/bin/bash
-echo "Running Symphony CLI helper script v1.1.0..."
 set -e
+
+VERSION="1.2.0"
+REPO_URL="https://raw.githubusercontent.com/philipdaquin/symphony-runner/main/symphony.sh"
 
 SYMPHONY_DIR="$HOME/.symphony"
 WORKFLOWS_DIR="$SYMPHONY_DIR/workflows"
@@ -223,9 +225,40 @@ cmd_list() {
 }
 
 # ---------------------------------------------------------------------------
+# check_for_update
+# ---------------------------------------------------------------------------
+check_for_update() {
+  local remote_version
+  remote_version=$(curl -s --max-time 5 "$REPO_URL" 2>/dev/null | grep '^VERSION="' | cut -d'"' -f2 || true)
+
+  if [ -z "$remote_version" ]; then
+    echo "Could not fetch remote version (network error or repo unavailable)"
+    return 1
+  fi
+
+  if [ "$remote_version" = "$VERSION" ]; then
+    echo "You have the latest version: v$VERSION"
+    return 1
+  fi
+
+  echo "Update available: v$VERSION -> v$remote_version"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # update
 # ---------------------------------------------------------------------------
 cmd_update() {
+  local check_only=false force_update=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --check) check_only=true; shift ;;
+      --force) force_update=true; shift ;;
+      *) shift ;;
+    esac
+  done
+
   local installed_path=""
 
   if [ -f "$HOME/bin/symphony" ] && [ -x "$HOME/bin/symphony" ]; then
@@ -242,21 +275,29 @@ cmd_update() {
     exit 1
   fi
 
-  local current_script
-  current_script=$(readlink -f "$0" 2>/dev/null || echo "$0")
-  current_script=$(realpath "$current_script" 2>/dev/null || echo "$current_script")
+  if [ "$check_only" = true ]; then
+    check_for_update && return 0
+    return 1
+  fi
 
-  local installed_real
-  installed_real=$(readlink -f "$installed_path" 2>/dev/null || echo "$installed_path")
-  installed_real=$(realpath "$installed_real" 2>/dev/null || echo "$installed_real")
+  local remote_script
+  remote_script=$(curl -s --max-time 10 "$REPO_URL" 2>/dev/null || true)
 
-  if [ "$current_script" = "$installed_real" ]; then
-    echo "Symphony is already up to date (installed at $installed_path)"
+  if [ -z "$remote_script" ]; then
+    echo "Failed to fetch remote script. Check your network connection."
+    exit 1
+  fi
+
+  local remote_version
+  remote_version=$(echo "$remote_script" | grep '^VERSION="' | cut -d'"' -f2)
+
+  if [ "$remote_version" = "$VERSION" ] && [ "$force_update" = false ]; then
+    echo "Symphony is already up to date: v$VERSION"
     return 0
   fi
 
-  echo "Updating Symphony from $current_script to $installed_path..."
-  cp "$current_script" "$installed_path"
+  echo "Updating Symphony from v$VERSION to v${remote_version:-unknown}..."
+  echo "$remote_script" > "$installed_path"
   chmod +x "$installed_path"
   echo "Symphony updated successfully."
 }
@@ -291,23 +332,35 @@ cmd_install() {
 }
 
 # ---------------------------------------------------------------------------
+# version
+# ---------------------------------------------------------------------------
+cmd_version() {
+  echo "Symphony CLI v$VERSION"
+}
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 case "${1:-}" in
-  add)    cmd_add "${@:2}" ;;
-  start)  cmd_start "${@:2}" ;;
-  list)   cmd_list ;;
-  update) cmd_update ;;
+  add)     cmd_add "${@:2}" ;;
+  start)   cmd_start "${@:2}" ;;
+  list)    cmd_list ;;
+  update)  cmd_update "${@:2}" ;;
   install) cmd_install ;;
+  version) cmd_version ;;
+  --version) cmd_version ;;
   *)
-    echo "Symphony CLI"
+    echo "Symphony CLI v$VERSION"
     echo ""
     echo "Commands:"
     echo "  symphony add <n> <project-slug> <git-repo-url> [--codex|--claude|--minimax]"
     echo "  symphony start <n> [--codex|--claude|--minimax]"
     echo "  symphony list"
-    echo "  symphony update    Update the installed symphony script"
+    echo "  symphony update    Update the installed symphony script (auto-checks GitHub)"
+    echo "  symphony update --check   Check if update available without installing"
+    echo "  symphony update --force    Force update even if same version"
     echo "  symphony install   Install symphony to your bin"
+    echo "  symphony version   Show version"
     echo ""
     echo "  --codex    Use Codex adapter (default)"
     echo "  --claude   Use Claude adapter"
@@ -320,5 +373,6 @@ case "${1:-}" in
     echo "  symphony start rizz-ai"
     echo "  symphony start rizz-ai --minimax"
     echo "  symphony update"
+    echo "  symphony update --check"
     ;;
 esac
