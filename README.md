@@ -170,6 +170,39 @@ symphony update --check   # Check for updates
 
 The `update` command fetches from GitHub main branch and auto-updates if a newer version is available.
 
+## Run Upstream Symphony Directly
+
+Use `symphony-openai.sh` when you want to run the original OpenAI checkout without the fork-based
+project runner:
+
+```bash
+./symphony-openai.sh
+```
+
+By default it uses:
+
+```text
+/Users/philipdaquin/Documents/symphony/symphony/elixir
+```
+
+Override that location with `SYMPHONY_ORIGINAL_BIN`:
+
+```bash
+SYMPHONY_ORIGINAL_BIN=/path/to/symphony/elixir ./symphony-openai.sh /path/to/WORKFLOW.md
+```
+
+Install the launcher as `symphony-openai`:
+
+```bash
+./symphony-openai.sh install
+```
+
+The launcher passes Symphony options through unchanged, so this works too:
+
+```bash
+symphony-openai ./WORKFLOW.md --port 4000
+```
+
 ## How It Works
 
 When you run `add`, the script:
