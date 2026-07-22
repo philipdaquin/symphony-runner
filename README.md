@@ -180,72 +180,73 @@ symphony update --check   # Check for updates
 
 The `update` command fetches from GitHub main branch and auto-updates if a newer version is available.
 
-## Run Upstream Symphony Directly
+## Upstream OpenAI-Only CLI
 
-Use `symphony-openai.sh` when you want to run the original OpenAI checkout without the fork-based
-project runner:
-
-```bash
-./symphony-openai.sh
-```
-
-By default it uses:
-
-```text
-/Users/philipdaquin/Documents/symphony/symphony/elixir
-```
-
-Override that location with `SYMPHONY_ORIGINAL_BIN`:
-
-```bash
-SYMPHONY_ORIGINAL_BIN=/path/to/symphony/elixir ./symphony-openai.sh /path/to/WORKFLOW.md
-```
-
-Install the launcher as `symphony-openai`:
+Use `symphony-openai.sh` when you want the original `openai/symphony` implementation with Codex,
+without any fork or alternate-agent integration:
 
 ```bash
 ./symphony-openai.sh install
 ```
 
-The launcher passes Symphony options through unchanged, so this works too:
+The CLI uses the upstream checkout at:
+
+```text
+/Users/philipdaquin/Documents/symphony/symphony/elixir
+```
+
+Override it with `SYMPHONY_ORIGINAL_BIN`:
 
 ```bash
-symphony-openai ./WORKFLOW.md --port 4000
+export SYMPHONY_ORIGINAL_BIN=/path/to/openai/symphony/elixir
 ```
+
+Configure and run projects:
+
+```bash
+symphony-openai add kozu kozu-ai-assisted-canvas-40caa03f7837 git@github.com:org/kozu.git \
+  --model gpt-5.4 --reasoning-effort high
+symphony-openai list
+symphony-openai edit kozu --slug another-linear-project-slug
+symphony-openai start kozu
+symphony-openai start kozu --model gpt-5.5 --reasoning-effort medium
+```
+
+State is isolated from the fork-based runner in `~/.symphony-openai`, with generated workflows in
+`~/.symphony-openai/workflows` and project mappings in `~/.symphony-openai/projects.conf`. Workspaces
+default to `~/code/symphony-openai-workspaces`; override that root with
+`SYMPHONY_OPENAI_WORKSPACE_ROOT`.
 
 ## How It Works
 
-When you run `add`, the script:
+When you run `symphony-openai add`, the script:
 
-1. checks that `$SYMPHONY_BIN/WORKFLOW.md` exists
-2. copies it to `~/.symphony/workflows/WORKFLOW_<name>.md`
+1. checks that `$SYMPHONY_ORIGINAL_BIN/WORKFLOW.md` exists
+2. copies it to `~/.symphony-openai/workflows/WORKFLOW_<name>.md`
 3. updates:
    - `project_slug`
    - the `git clone` line
-   - the workspace root under `~/code/symphony-workspaces/<name>`
-4. patches the agent block with adapter and concurrency settings
-5. stores the project in `~/.symphony/projects.conf`
+   - the workspace root under `~/code/symphony-openai-workspaces/<name>`
+4. patches the Codex model and reasoning effort when supplied
+5. stores the project in `~/.symphony-openai/projects.conf`
 
-When you run `start`, the script:
+When you run `symphony-openai start`, the script:
 
 1. loads saved project config, including model defaults
-2. patches the workflow with current adapter settings
-3. rewrites the Codex command for the selected overrides
-4. exports MiniMax env vars if needed
-5. checks if the escript needs rebuilding (rebuilds if sources are newer)
-6. launches Symphony with `--logs-root` set to `~/.symphony`
+2. rewrites the Codex command for selected overrides
+3. checks if the upstream escript needs rebuilding
+4. launches upstream Symphony with `--logs-root` set to `~/.symphony-openai`
 
 ## Files Used
 
-- `symphony.sh`: wrapper script
-- `~/.symphony/projects.conf`: stored project mappings (format: `name|slug|repo|adapter|use_minimax|model|reasoning_effort`)
-- `~/.symphony/workflows/WORKFLOW_<name>.md`: generated per-project workflows
-- `$SYMPHONY_BIN/WORKFLOW.md`: base workflow template
-- `$SYMPHONY_BIN/bin/symphony`: built escript (auto-built on demand)
+- `symphony-openai.sh`: upstream-only wrapper script
+- `~/.symphony-openai/projects.conf`: stored mappings (`name|slug|repo|model|reasoning_effort`)
+- `~/.symphony-openai/workflows/WORKFLOW_<name>.md`: generated per-project workflows
+- `$SYMPHONY_ORIGINAL_BIN/WORKFLOW.md`: upstream base workflow template
+- `$SYMPHONY_ORIGINAL_BIN/bin/symphony`: upstream escript (auto-built on demand)
 
 ## Important Notes
 
-- `LINEAR_API_KEY` is required or the script exits immediately.
-- `MINIMAX_API_KEY` is required when using `--minimax`.
+- `LINEAR_API_KEY` is read by upstream Symphony when `start` launches the tracker.
 - The in-place `sed -i ''` commands are written for macOS/BSD `sed`.
 - Codex model names are passed straight through to the `codex` CLI, so the exact accepted values depend on your installed Codex version.
