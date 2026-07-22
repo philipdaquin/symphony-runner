@@ -1,8 +1,8 @@
-# Symphony Runner v1.2.0
+# Symphony Runner v1.3.0
 
 Shell wrapper for creating project-specific Symphony workflows and launching them against Linear-backed projects with support for multiple AI adapters. Supports claude/codex/minimax integration.
 
-**Latest version includes auto-update!** Run `symphony update` to update.
+Use `symphony update` to update the installed command.
 
 Refer to my forked version of symphony for Claude/Codex/MiniMax integration:
 https://github.com/philipdaquin/symphony
@@ -21,6 +21,7 @@ or the original codex only integration
 - stores project mappings in `~/.symphony/projects.conf`
 - copies your base Symphony workflow from `$SYMPHONY_BIN/WORKFLOW.md`
 - patches the copied workflow with project slug, repo URL, workspace path, and agent config
+- can persist a per-project Codex model and reasoning effort
 - auto-builds the Symphony escript when source files change
 - starts Symphony with the generated workflow
 
@@ -59,6 +60,12 @@ Make the script executable:
 chmod +x symphony.sh
 ```
 
+Install it so you can run `symphony` from anywhere:
+
+```bash
+./symphony.sh install
+```
+
 ## Adapters
 
 The script supports three adapter modes:
@@ -68,6 +75,15 @@ The script supports three adapter modes:
 | `--codex` | Codex | Uses OpenAI Codex agent (default) |
 | `--claude` | Claude | Uses Anthropic Claude adapter |
 | `--minimax` | Claude + MiniMax | Routes Claude through MiniMax M2.7 |
+
+Codex runs also accept:
+
+| Flag | Description |
+|------|-------------|
+| `--model <name>` | Sets the Codex model, for example `gpt-5.3-codex` or `codex-mini-latest` |
+| `--reasoning-effort <effort>` | Sets `model_reasoning_effort`, for example `low`, `medium`, `high`, or `xhigh` |
+
+You can also use the shorthand form `--codex <model>` on `start` to set the model directly.
 
 When using `--minimax`, the script exports these env vars:
 
@@ -87,61 +103,69 @@ ANTHROPIC_DEFAULT_HAIKU_MODEL="MiniMax-M2.7"
 ### Add a project
 
 ```bash
-./symphony.sh add <name> <linear-project-slug> <git-repo-url> [--codex|--claude|--minimax]
+symphony add <name> <linear-project-slug> <git-repo-url> [--codex|--claude|--minimax] [--model <name>] [--reasoning-effort <effort>]
 ```
 
 Examples:
 
 ```bash
-./symphony.sh add rizz-ai symphony-abc git@github.com:org/repo.git
-./symphony.sh add rizz-ai symphony-abc git@github.com:org/repo.git --claude
-./symphony.sh add rizz-ai symphony-abc git@github.com:org/repo.git --minimax
+symphony add rizz-ai symphony-abc git@github.com:org/repo.git
+symphony add rizz-ai symphony-abc git@github.com:org/repo.git --claude
+symphony add rizz-ai symphony-abc git@github.com:org/repo.git --minimax
+symphony add rizz-ai symphony-abc git@github.com:org/repo.git --codex --model gpt-5.3-codex
 ```
 
 The adapter preference is saved in `projects.conf` and reused on `start` unless overridden.
+If you pass `--model` or `--reasoning-effort` to `add`, those values are also saved and reused.
 
 ### List configured projects
 
 ```bash
-./symphony.sh list
+symphony list
 ```
 
 ### Start a project
 
 ```bash
-./symphony.sh start <name> [--codex|--claude|--minimax]
+symphony start <name> [--codex|--claude|--minimax] [--model <name>] [--reasoning-effort <effort>]
 ```
 
 Examples:
 
 ```bash
-./symphony.sh start rizz-ai
-./symphony.sh start rizz-ai --minimax
+symphony start rizz-ai
+symphony start rizz-ai --minimax
+symphony start rizz-ai --codex gpt-5.4-mini
+symphony start rizz-ai --codex --model codex-mini-latest --reasoning-effort medium
 ```
 
-Starting a project:
+Start a configured project:
 
-1. Loads adapter preference from `projects.conf` (if no flag passed)
-2. Patches the workflow file with the agent config (`adapter`, `max_concurrent_agents: 10`, `max_turns: 20`)
-3. Exports MiniMax env vars if `--minimax` was used
-4. Builds the Symphony escript if needed (rebuilds if source files are newer)
-5. Launches Symphony with the workflow
+1. Loads adapter preference from `projects.conf` if no adapter flag is passed
+2. Loads saved `model` and `reasoning_effort` values from `projects.conf` unless overridden
+3. Patches the workflow file with the agent config (`adapter`, `max_concurrent_agents: 10`, `max_turns: 20`)
+4. Rewrites `codex.command` when a Codex model or reasoning effort is set
+5. Saves any overrides back into `projects.conf`
+6. Exports MiniMax env vars if `--minimax` was used
+7. Builds the Symphony escript if needed, then launches Symphony with the workflow
+
+If you have not installed the wrapper yet, run the same commands as `./symphony.sh <command>` from this repository.
 
 ### Install or Update
 
 ```bash
 ./symphony.sh install   # Install symphony to ~/bin/symphony (or ~/.local/bin/symphony)
-./symphony.sh update    # Update to latest version from GitHub
-./symphony.sh update --check   # Check if update available without installing
-./symphony.sh version   # Show current version
+symphony update    # Update the installed command from GitHub
+symphony update --check   # Check if update available without installing
+symphony version   # Show current version
 ```
 
 Examples:
 
 ```bash
 ./symphony.sh install   # First-time installation
-./symphony.sh update    # Update to the latest version
-./symphony.sh update --check   # Check for updates
+symphony update    # Update the installed command
+symphony update --check   # Check for updates
 ```
 
 The `update` command fetches from GitHub main branch and auto-updates if a newer version is available.
@@ -161,16 +185,17 @@ When you run `add`, the script:
 
 When you run `start`, the script:
 
-1. loads saved project config
+1. loads saved project config, including model defaults
 2. patches the workflow with current adapter settings
-3. exports MiniMax env vars if needed
-4. checks if the escript needs rebuilding (rebuilds if sources are newer)
-5. launches Symphony with `--logs-root` set to `~/.symphony`
+3. rewrites the Codex command for the selected overrides
+4. exports MiniMax env vars if needed
+5. checks if the escript needs rebuilding (rebuilds if sources are newer)
+6. launches Symphony with `--logs-root` set to `~/.symphony`
 
 ## Files Used
 
 - `symphony.sh`: wrapper script
-- `~/.symphony/projects.conf`: stored project mappings (format: `name|slug|repo|adapter|use_minimax`)
+- `~/.symphony/projects.conf`: stored project mappings (format: `name|slug|repo|adapter|use_minimax|model|reasoning_effort`)
 - `~/.symphony/workflows/WORKFLOW_<name>.md`: generated per-project workflows
 - `$SYMPHONY_BIN/WORKFLOW.md`: base workflow template
 - `$SYMPHONY_BIN/bin/symphony`: built escript (auto-built on demand)
@@ -180,3 +205,4 @@ When you run `start`, the script:
 - `LINEAR_API_KEY` is required or the script exits immediately.
 - `MINIMAX_API_KEY` is required when using `--minimax`.
 - The in-place `sed -i ''` commands are written for macOS/BSD `sed`.
+- Codex model names are passed straight through to the `codex` CLI, so the exact accepted values depend on your installed Codex version.

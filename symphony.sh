@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 REPO_URL="https://raw.githubusercontent.com/philipdaquin/symphony-runner/main/symphony.sh"
 
 SYMPHONY_DIR="$HOME/.symphony"
@@ -38,6 +38,14 @@ if [ -z "$LINEAR_API_KEY" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Shell quoting helpers
+# ---------------------------------------------------------------------------
+shell_quote() {
+  local value="$1"
+  printf "'%s'" "${value//\'/\'\"\'\"\'}"
+}
+
+# ---------------------------------------------------------------------------
 # Patch agent block in workflow file
 # ---------------------------------------------------------------------------
 patch_agent() {
@@ -55,6 +63,53 @@ patch_agent() {
     }
     in_agent && /^[^ ]/ { in_agent=0 }
     in_agent { next }
+    { print }
+  ' "$workflow_file" > "${workflow_file}.tmp" && mv "${workflow_file}.tmp" "$workflow_file"
+}
+
+# ---------------------------------------------------------------------------
+# Patch codex command in workflow file
+# ---------------------------------------------------------------------------
+build_codex_command() {
+  local model="$1"
+  local reasoning_effort="$2"
+  local command="codex --config shell_environment_policy.inherit=all"
+
+  if [ -n "$model" ]; then
+    command+=" --config $(shell_quote "model=\"$model\"")"
+  fi
+
+  if [ -n "$reasoning_effort" ]; then
+    command+=" --config $(shell_quote "model_reasoning_effort=\"$reasoning_effort\"")"
+  fi
+
+  command+=" app-server"
+  printf '%s' "$command"
+}
+
+patch_codex_command() {
+  local workflow_file="$1"
+  local model="$2"
+  local reasoning_effort="$3"
+
+  if [ -z "$model" ] && [ -z "$reasoning_effort" ]; then
+    return 0
+  fi
+
+  local command
+  command=$(build_codex_command "$model" "$reasoning_effort")
+
+  awk -v command="$command" '
+    /^codex:/ {
+      print
+      in_codex=1
+      next
+    }
+    in_codex && /^[^ ]/ { in_codex=0 }
+    in_codex && /^  command:/ {
+      print "  command: " command
+      next
+    }
     { print }
   ' "$workflow_file" > "${workflow_file}.tmp" && mv "${workflow_file}.tmp" "$workflow_file"
 }
@@ -86,7 +141,7 @@ export_minimax_env() {
 # add
 # ---------------------------------------------------------------------------
 cmd_add() {
-  local name="" slug="" repo="" adapter="codex" use_minimax=false
+  local name="" slug="" repo="" adapter="codex" use_minimax=false model="" reasoning_effort=""
 
   local positional=()
   while [[ $# -gt 0 ]]; do
@@ -94,6 +149,14 @@ cmd_add() {
       --claude)   adapter="claude"; shift ;;
       --codex)    adapter="codex"; shift ;;
       --minimax)  adapter="claude"; use_minimax=true; shift ;;
+      --model)
+        model="${2:-}"
+        shift 2
+        ;;
+      --reasoning-effort)
+        reasoning_effort="${2:-}"
+        shift 2
+        ;;
       *) positional+=("$1"); shift ;;
     esac
   done
@@ -102,13 +165,18 @@ cmd_add() {
   slug="${positional[1]:-}"
   repo="${positional[2]:-}"
 
+  if [ -z "$model" ] && [ "$adapter" = "codex" ] && [ -n "${positional[3]:-}" ]; then
+    model="${positional[3]}"
+  fi
+
   if [ -z "$name" ] || [ -z "$slug" ] || [ -z "$repo" ]; then
-    echo "Usage: symphony add <n> <project-slug> <git-repo-url> [--codex|--claude|--minimax]"
+    echo "Usage: symphony add <n> <project-slug> <git-repo-url> [--codex|--claude|--minimax] [--model <name>] [--reasoning-effort <effort>]"
     echo ""
     echo "Examples:"
     echo "  symphony add rizz-ai slug-abc git@github.com:org/rizz-ai.git"
     echo "  symphony add rizz-ai slug-abc git@github.com:org/rizz-ai.git --claude"
     echo "  symphony add rizz-ai slug-abc git@github.com:org/rizz-ai.git --minimax"
+    echo "  symphony add rizz-ai slug-abc git@github.com:org/rizz-ai.git --codex --model gpt-5.3-codex"
     exit 1
   fi
 
@@ -123,14 +191,15 @@ cmd_add() {
   sed -i '' "s|project_slug:.*|project_slug: \"${slug}\"|" "$workflow_file"
   sed -i '' "s|git clone.*|git clone --depth 1 ${repo} .|" "$workflow_file"
   sed -i '' "s|root:.*workspaces.*|root: ~/code/symphony-workspaces/${name}|" "$workflow_file"
-
   patch_agent "$workflow_file" "$adapter"
+  patch_codex_command "$workflow_file" "$model" "$reasoning_effort"
 
   echo "Adapter: $adapter"
   [ "$use_minimax" = true ] && echo "Provider: MiniMax M2.7 (via Claude adapter)"
 
-  grep -v "^${name}|" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-  echo "${name}|${slug}|${repo}|${adapter}|${use_minimax}" >> "$CONFIG_FILE"
+  grep -v "^${name}|" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" || true
+  mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+  echo "${name}|${slug}|${repo}|${adapter}|${use_minimax}|${model}|${reasoning_effort}" >> "$CONFIG_FILE"
 
   echo "Added project: $name"
   echo "Workflow: $workflow_file"
@@ -140,22 +209,37 @@ cmd_add() {
 # start
 # ---------------------------------------------------------------------------
 cmd_start() {
-  local name="" adapter="" use_minimax=false flag_set=false
+  local name="" adapter="" use_minimax=false adapter_set=false model="" model_set=false reasoning_effort="" reasoning_effort_set=false
 
   local positional=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --claude)   adapter="claude"; flag_set=true; shift ;;
-      --codex)    adapter="codex";  flag_set=true; shift ;;
-      --minimax)  adapter="claude"; use_minimax=true; flag_set=true; shift ;;
+      --claude)   adapter="claude"; adapter_set=true; shift ;;
+      --codex)    adapter="codex";  adapter_set=true; shift ;;
+      --minimax)  adapter="claude"; use_minimax=true; adapter_set=true; shift ;;
+      --model)
+        model="${2:-}"
+        model_set=true
+        shift 2
+        ;;
+      --reasoning-effort)
+        reasoning_effort="${2:-}"
+        reasoning_effort_set=true
+        shift 2
+        ;;
       *) positional+=("$1"); shift ;;
     esac
   done
 
   name="${positional[0]:-}"
 
+  if [ -z "$model" ] && [ "$adapter" = "codex" ] && [ -n "${positional[1]:-}" ]; then
+    model="${positional[1]}"
+    model_set=true
+  fi
+
   if [ -z "$name" ]; then
-    echo "Usage: symphony start <n> [--codex|--claude|--minimax]"
+    echo "Usage: symphony start <n> [--codex|--claude|--minimax] [--model <name>] [--reasoning-effort <effort>]"
     exit 1
   fi
 
@@ -176,15 +260,31 @@ cmd_start() {
     exit 1
   fi
 
-  # Fall back to saved preference if no flag passed
-  if [ "$flag_set" = false ]; then
-    adapter=$(echo "$project_line" | cut -d'|' -f4)
-    local saved_minimax
-    saved_minimax=$(echo "$project_line" | cut -d'|' -f5)
-    [ "$saved_minimax" = "true" ] && use_minimax=true
+  local saved_name="" saved_slug="" saved_repo="" saved_adapter="" saved_minimax="" saved_model="" saved_reasoning_effort=""
+  IFS='|' read -r saved_name saved_slug saved_repo saved_adapter saved_minimax saved_model saved_reasoning_effort <<< "$project_line"
+
+  if [ "$adapter_set" = false ] || [ -z "$adapter" ]; then
+    adapter="$saved_adapter"
+  fi
+
+  if [ "$model_set" = false ]; then
+    model="$saved_model"
+  fi
+
+  if [ "$reasoning_effort_set" = false ]; then
+    reasoning_effort="$saved_reasoning_effort"
+  fi
+
+  [ "$saved_minimax" = "true" ] && use_minimax=true
+
+  if [ "$adapter_set" = true ] || [ "$model_set" = true ] || [ "$reasoning_effort_set" = true ]; then
+    grep -v "^${name}|" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" || true
+    mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+    echo "${saved_name}|${saved_slug}|${saved_repo}|${adapter}|${use_minimax}|${model}|${reasoning_effort}" >> "$CONFIG_FILE"
   fi
 
   patch_agent "$workflow_file" "$adapter"
+  patch_codex_command "$workflow_file" "$model" "$reasoning_effort"
 
   if [ "$use_minimax" = true ]; then
     export_minimax_env
@@ -213,13 +313,15 @@ cmd_list() {
 
   echo "Configured projects:"
   echo ""
-  while IFS='|' read -r name slug repo adapter use_minimax; do
+  while IFS='|' read -r name slug repo adapter use_minimax model reasoning_effort; do
     local agent_info="$adapter"
     [ "$use_minimax" = "true" ] && agent_info="$adapter (MiniMax M2.7)"
     echo "  $name"
     echo "    slug:    $slug"
     echo "    repo:    $repo"
     echo "    adapter: $agent_info"
+    [ -n "$model" ] && echo "    model:   $model"
+    [ -n "$reasoning_effort" ] && echo "    effort:  $reasoning_effort"
     echo ""
   done < "$CONFIG_FILE"
 }
@@ -353,8 +455,8 @@ case "${1:-}" in
     echo "Symphony CLI v$VERSION"
     echo ""
     echo "Commands:"
-    echo "  symphony add <n> <project-slug> <git-repo-url> [--codex|--claude|--minimax]"
-    echo "  symphony start <n> [--codex|--claude|--minimax]"
+    echo "  symphony add <n> <project-slug> <git-repo-url> [--codex|--claude|--minimax] [--model <name>] [--reasoning-effort <effort>]"
+    echo "  symphony start <n> [--codex|--claude|--minimax] [--model <name>] [--reasoning-effort <effort>]"
     echo "  symphony list"
     echo "  symphony update    Update the installed symphony script (auto-checks GitHub)"
     echo "  symphony update --check   Check if update available without installing"
@@ -365,13 +467,17 @@ case "${1:-}" in
     echo "  --codex    Use Codex adapter (default)"
     echo "  --claude   Use Claude adapter"
     echo "  --minimax  Use Claude adapter routed through MiniMax M2.7"
+    echo "  --model    Set the Codex model for this project"
+    echo "  --reasoning-effort  Set the Codex reasoning effort for this project"
     echo ""
     echo "Examples:"
     echo "  symphony add rizz-ai slug-abc git@github.com:org/rizz-ai.git"
     echo "  symphony add rizz-ai slug-abc git@github.com:org/rizz-ai.git --claude"
     echo "  symphony add rizz-ai slug-abc git@github.com:org/rizz-ai.git --minimax"
+    echo "  symphony add rizz-ai slug-abc git@github.com:org/rizz-ai.git --codex --model gpt-5.3-codex"
     echo "  symphony start rizz-ai"
     echo "  symphony start rizz-ai --minimax"
+    echo "  symphony start rizz-ai --codex --model codex-mini-latest --reasoning-effort medium"
     echo "  symphony update"
     echo "  symphony update --check"
     ;;
