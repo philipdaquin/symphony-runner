@@ -206,6 +206,61 @@ cmd_add() {
 }
 
 # ---------------------------------------------------------------------------
+# edit
+# ---------------------------------------------------------------------------
+cmd_edit() {
+  local name="" new_slug=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --slug|--project-slug)
+        new_slug="${2:-}"
+        shift 2
+        ;;
+      *)
+        if [ -z "$name" ]; then
+          name="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  if [ -z "$name" ] || [ -z "$new_slug" ]; then
+    echo "Usage: symphony edit <name> --slug <linear-project-slug>"
+    exit 1
+  fi
+
+  local project_line
+  project_line=$(grep "^${name}|" "$CONFIG_FILE" 2>/dev/null || true)
+
+  if [ -z "$project_line" ]; then
+    echo "Error: project '$name' not found"
+    echo "Run 'symphony list' to see configured projects"
+    exit 1
+  fi
+
+  local saved_name="" saved_slug="" saved_repo="" saved_adapter="" saved_minimax="" saved_model="" saved_reasoning_effort=""
+  IFS='|' read -r saved_name saved_slug saved_repo saved_adapter saved_minimax saved_model saved_reasoning_effort <<< "$project_line"
+
+  local workflow_file="$WORKFLOWS_DIR/WORKFLOW_${name}.md"
+  if [ ! -f "$workflow_file" ]; then
+    echo "Error: workflow file not found: $workflow_file"
+    exit 1
+  fi
+
+  sed -i '' "s|project_slug:.*|project_slug: \"${new_slug}\"|" "$workflow_file"
+
+  grep -v "^${name}|" "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" || true
+  mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+  echo "${saved_name}|${new_slug}|${saved_repo}|${saved_adapter}|${saved_minimax}|${saved_model}|${saved_reasoning_effort}" >> "$CONFIG_FILE"
+
+  echo "Updated project: $name"
+  echo "Linear slug: $new_slug"
+  echo "Workflow: $workflow_file"
+}
+
+# ---------------------------------------------------------------------------
 # start
 # ---------------------------------------------------------------------------
 cmd_start() {
@@ -445,6 +500,7 @@ cmd_version() {
 # ---------------------------------------------------------------------------
 case "${1:-}" in
   add)     cmd_add "${@:2}" ;;
+  edit)    cmd_edit "${@:2}" ;;
   start)   cmd_start "${@:2}" ;;
   list)    cmd_list ;;
   update)  cmd_update "${@:2}" ;;
@@ -456,6 +512,7 @@ case "${1:-}" in
     echo ""
     echo "Commands:"
     echo "  symphony add <n> <project-slug> <git-repo-url> [--codex|--claude|--minimax] [--model <name>] [--reasoning-effort <effort>]"
+    echo "  symphony edit <name> --slug <linear-project-slug>"
     echo "  symphony start <n> [--codex|--claude|--minimax] [--model <name>] [--reasoning-effort <effort>]"
     echo "  symphony list"
     echo "  symphony update    Update the installed symphony script (auto-checks GitHub)"

@@ -118,6 +118,16 @@ symphony add rizz-ai symphony-abc git@github.com:org/repo.git --codex --model gp
 The adapter preference is saved in `projects.conf` and reused on `start` unless overridden.
 If you pass `--model` or `--reasoning-effort` to `add`, those values are also saved and reused.
 
+### Edit a project slug
+
+Update the Linear slug for an existing project without re-adding it:
+
+```bash
+symphony edit kozu --slug kozu-ai-assisted-canvas-40caa03f7837
+```
+
+This updates both the saved project config and its generated workflow.
+
 ### List configured projects
 
 ```bash
